@@ -151,6 +151,23 @@ app.get("/api/videos", async (req, res) => {
         return res.status(500).send("Error fetching videos!");
     }
 });
+// Fetch a single video by ID
+app.get("/api/videos/:videoId", async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const video = await Video.findOne({ videoId });
+
+        if (!video) {
+            return res.status(404).json({ error: "Video not found!" });
+        }
+
+        return res.status(200).json(video);
+    } catch (err) {
+        console.error("❌ Error fetching video:", err);
+        return res.status(500).send("Error fetching video!");
+    }
+});
+
 
 app.listen(port, () => {
     console.log(`🚀 Server is running at http://localhost:${port}`);
