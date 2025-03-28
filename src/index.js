@@ -66,30 +66,31 @@ app.post("/api/upload", uploader("video"), async (req, res) => {
 
     const thumbnailUrl = req.file.thumbnail; // Thumbnail URL from uploader middleware
 
-    // HLS Conversion Function
-    const executeHLSConversion = (resolution, config) => {
-        return new Promise((resolve, reject) => {
-            const outputPath = `${outputFolderRootPath}/${resolution}`;
-            const command = `ffmpeg -i ${uploadedVideoPath} -vf "scale=-2:${config.height}" -c:v libx264 -preset fast -b:v ${config.bitrate} -c:a aac -b:a ${config.audio} -f hls -hls_time 10 -hls_playlist_type vod -hls_segment_filename "${outputPath}/segment%03d.ts" -start_number 0 "${outputPath}/index.m3u8"`;
+ // HLS Conversion Function (Optimized)
+const executeHLSConversion = (resolution, config) => {
+    return new Promise((resolve, reject) => {
+        const outputPath = `${outputFolderRootPath}/${resolution}`;
+        const command = `ffmpeg -i ${uploadedVideoPath} -vf "scale=-2:${config.height}" -c:v libx264 -preset ultrafast -threads 4 -b:v ${config.bitrate} -c:a aac -b:a ${config.audio} -f hls -hls_time 5 -hls_playlist_type vod -hls_segment_filename "${outputPath}/segment%03d.ts" -start_number 0 "${outputPath}/index.m3u8"`;
 
-            exec(command, (error) => {
-                if (error) {
-                    console.error(`❌ HLS Conversion failed for ${resolution}:`, error);
-                    reject(error);
+        exec(command, (error) => {
+            if (error) {
+                console.error(`❌ HLS Conversion failed for ${resolution}:`, error);
+                reject(error);
+            } else {
+                console.log(`✅ HLS Conversion successful for ${resolution}`);
+
+                // Ensure HLS playlist exists
+                if (!fs.existsSync(`${outputPath}/index.m3u8`)) {
+                    console.error(`❌ HLS file missing: ${outputPath}/index.m3u8`);
+                    reject(new Error(`HLS file missing for ${resolution}`));
                 } else {
-                    console.log(`✅ HLS Conversion successful for ${resolution}`);
-
-                    // Ensure HLS playlist exists
-                    if (!fs.existsSync(`${outputPath}/index.m3u8`)) {
-                        console.error(`❌ HLS file missing: ${outputPath}/index.m3u8`);
-                        reject(new Error(`HLS file missing for ${resolution}`));
-                    } else {
-                        resolve();
-                    }
+                    resolve();
                 }
-            });
+            }
         });
-    };
+    });
+};
+
 
     try {
         const conversionResults = await Promise.allSettled(
@@ -165,6 +166,42 @@ app.get("/api/videos/:videoId", async (req, res) => {
     } catch (err) {
         console.error("❌ Error fetching video:", err);
         return res.status(500).send("Error fetching video!");
+    }
+});
+
+// Delete a video by ID
+app.delete("/api/videos/:videoId", async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        
+        // Find and delete video from MongoDB
+        const video = await Video.findOneAndDelete({ videoId });
+
+        if (!video) {
+            return res.status(404).json({ error: "Video not found!" });
+        }
+
+        // Remove video files and folders from file system
+        const videoFolderPath = `./hls-output/${videoId}`;
+        const thumbnailPath = `./thumbnails/${videoId}.jpg`; // Adjust thumbnail file extension if needed
+
+        // Delete video folder
+        if (fs.existsSync(videoFolderPath)) {
+            fs.rmSync(videoFolderPath, { recursive: true, force: true });
+            console.log(`🟢 Video files deleted from folder: ${videoFolderPath}`);
+        }
+
+        // Delete thumbnail
+        if (fs.existsSync(thumbnailPath)) {
+            fs.unlinkSync(thumbnailPath);
+            console.log(`🟢 Thumbnail deleted: ${thumbnailPath}`);
+        }
+
+        console.log(`✅ Video with ID ${videoId} deleted successfully.`);
+        return res.status(200).json({ message: "Video deleted successfully!" });
+    } catch (err) {
+        console.error("❌ Error deleting video:", err);
+        return res.status(500).send("Error deleting video!");
     }
 });
 
